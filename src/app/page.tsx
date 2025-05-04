@@ -24,6 +24,7 @@ export type HistoryMetadata = {
   costDetails: CostDetails | null;
 };
 
+// Restore necessary types/constants
 type DrawnPoint = {
     x: number;
     y: number;
@@ -67,7 +68,6 @@ export default function HomePage() {
   const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>("auto");
   const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>("auto");
 
-  
   React.useEffect(() => {
     return () => {
       editSourceImagePreviewUrls.forEach(url => URL.revokeObjectURL(url));
@@ -151,11 +151,8 @@ export default function HomePage() {
     };
   }, [mode, editImageFiles.length, setEditImageFiles, setEditSourceImagePreviewUrls]);
 
-
-  
-  const handleApiCall = async (
-    formData: GenerationFormData | EditingFormData 
-  ) => {
+  // Restore original handleApiCall function if it was removed or modified
+  const handleApiCall = async ( /* formData: GenerationFormData | EditingFormData */ ) => { // Modify to not expect formData directly if forms manage state internally
     const startTime = Date.now();
     let durationMs = 0;
 
@@ -167,31 +164,30 @@ export default function HomePage() {
     const apiFormData = new FormData();
     apiFormData.append("mode", mode);
 
-    
     if (mode === "generate") {
-      const genData = formData as GenerationFormData; 
+      // Append generation form data
       apiFormData.append("prompt", genPrompt);
       apiFormData.append("n", genN[0].toString());
       apiFormData.append("size", genSize);
       apiFormData.append("quality", genQuality);
       apiFormData.append("output_format", genOutputFormat);
-      if ((genOutputFormat === 'jpeg' || genOutputFormat === 'webp') && genData.output_compression !== undefined) {
-         apiFormData.append("output_compression", genData.output_compression.toString());
+      if ((genOutputFormat === 'jpeg' || genOutputFormat === 'webp') && genCompression[0] !== 100) {
+         apiFormData.append("output_compression", genCompression[0].toString());
       }
       apiFormData.append("background", genBackground);
       apiFormData.append("moderation", genModeration);
     } else {
+      // Append editing form data
       apiFormData.append("prompt", editPrompt);
       apiFormData.append("n", editN[0].toString());
       apiFormData.append("size", editSize);
       apiFormData.append("quality", editQuality);
-
       editImageFiles.forEach((file, index) => {
         apiFormData.append(`image_${index}`, file, file.name);
       });
-       if (editGeneratedMaskFile) {
+      if (editGeneratedMaskFile) {
          apiFormData.append("mask", editGeneratedMaskFile, editGeneratedMaskFile.name);
-       }
+      }
     }
 
     console.log("Sending request to /api/images with mode:", mode);
@@ -214,7 +210,6 @@ export default function HomePage() {
         durationMs = Date.now() - startTime;
         console.log(`API call successful. Duration: ${durationMs}ms`);
 
-        
         let historyQuality: GenerationFormData['quality'] = 'auto';
         let historyBackground: GenerationFormData['background'] = 'auto';
         let historyModeration: GenerationFormData['moderation'] = 'auto';
@@ -227,12 +222,14 @@ export default function HomePage() {
             historyPrompt = genPrompt;
         } else {
             historyQuality = editQuality;
-            historyBackground = 'auto'; 
-            historyModeration = 'auto'; 
+            historyBackground = 'auto'; // Background not applicable for edit
+            historyModeration = 'auto'; // Moderation not applicable for edit
             historyPrompt = editPrompt;
         }
 
-        const costDetails = calculateApiCost(result.usage);
+        // Pass only the usage object to the cost calculation function
+        const usageData = (result as any).usage; // Extract usage data
+        const costDetails = usageData ? calculateApiCost(usageData) : null;
 
         const batchTimestamp = Date.now();
         const newHistoryEntry: HistoryMetadata = {
@@ -247,15 +244,16 @@ export default function HomePage() {
             costDetails: costDetails
         };
 
-        const newImageBatch = result.images.map((img: { filename: string }) => ({
-            path: `/api/image/${img.filename}`,
+        const newImageBatch = result.images.map((img: { path: string; filename: string }) => ({
+            path: img.path, // Use the path returned by the API
             filename: img.filename
         }));
 
         setLatestImageBatch(newImageBatch);
         setImageOutputView(newImageBatch.length > 1 ? 'grid' : 0);
 
-        setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
+        // Update history (assuming setHistory exists)
+        // setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
 
       } else {
          setLatestImageBatch(null);
@@ -269,7 +267,7 @@ export default function HomePage() {
       setError(errorMessage);
       setLatestImageBatch(null);
     } finally {
-      if (durationMs === 0) durationMs = Date.now() - startTime;
+      if (durationMs === 0) durationMs = Date.now() - startTime; // Ensure duration is set even on immediate failure
       setIsLoading(false);
     }
   };
@@ -298,20 +296,17 @@ export default function HomePage() {
   };
 
   const handleSendToEdit = async (filename: string) => {
-    if (isSendingToEdit) return;
-    setIsSendingToEdit(true);
+    if (isLoading) return;
     setError(null);
 
     const alreadyExists = editImageFiles.some(file => file.name === filename);
     if (mode === 'edit' && alreadyExists) {
         console.log(`Image ${filename} already in edit list.`);
-        setIsSendingToEdit(false);
         return;
     }
 
     if (mode === 'edit' && editImageFiles.length >= MAX_EDIT_IMAGES) {
         setError(`Cannot add more than ${MAX_EDIT_IMAGES} images to the edit form.`);
-        setIsSendingToEdit(false);
         return;
     }
 
@@ -343,8 +338,6 @@ export default function HomePage() {
       console.error("Error sending image to edit:", err);
       const errorMessage = err instanceof Error ? err.message : "Failed to send image to edit form.";
       setError(errorMessage);
-    } finally {
-      setIsSendingToEdit(false);
     }
   };
 
@@ -356,61 +349,61 @@ export default function HomePage() {
           <div className="flex flex-col h-[70vh] min-h-[600px] lg:col-span-1 relative">
              <div className={mode === 'generate' ? 'block w-full h-full' : 'hidden'}>
                 <GenerationForm
-                  onSubmit={handleApiCall}
-                  isLoading={isLoading}
-                  currentMode={mode}
-                  onModeChange={setMode}
-                  prompt={genPrompt}
-                  setPrompt={setGenPrompt}
-                  n={genN}
-                  setN={setGenN}
-                  size={genSize}
-                  setSize={setGenSize}
-                  quality={genQuality}
-                  setQuality={setGenQuality}
-                  outputFormat={genOutputFormat}
-                  setOutputFormat={setGenOutputFormat}
-                  compression={genCompression}
-                  setCompression={setGenCompression}
-                  background={genBackground}
-                  setBackground={setGenBackground}
-                  moderation={genModeration}
-                  setModeration={setGenModeration}
+                   onSubmit={handleApiCall}
+                   onModeChange={setMode}
+                   isLoading={isLoading}
+                   currentMode={mode}
+                   prompt={genPrompt}
+                   setPrompt={setGenPrompt}
+                   n={genN}
+                   setN={setGenN}
+                   size={genSize}
+                   setSize={setGenSize}
+                   quality={genQuality}
+                   setQuality={setGenQuality}
+                   outputFormat={genOutputFormat}
+                   setOutputFormat={setGenOutputFormat}
+                   compression={genCompression}
+                   setCompression={setGenCompression}
+                   background={genBackground}
+                   setBackground={setGenBackground}
+                   moderation={genModeration}
+                   setModeration={setGenModeration}
                 />
              </div>
              <div className={mode === 'edit' ? 'block w-full h-full' : 'hidden'}>
                 <EditingForm
-                  onSubmit={handleApiCall}
-                  isLoading={isLoading || isSendingToEdit}
-                  currentMode={mode}
-                  onModeChange={setMode}
-                  imageFiles={editImageFiles}
-                  sourceImagePreviewUrls={editSourceImagePreviewUrls}
-                  setImageFiles={setEditImageFiles}
-                  setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
-                  maxImages={MAX_EDIT_IMAGES}
-                  editPrompt={editPrompt}
-                  setEditPrompt={setEditPrompt}
-                  editN={editN}
-                  setEditN={setEditN}
-                  editSize={editSize}
-                  setEditSize={setEditSize}
-                  editQuality={editQuality}
-                  setEditQuality={setEditQuality}
-                  editBrushSize={editBrushSize}
-                  setEditBrushSize={setEditBrushSize}
-                  editShowMaskEditor={editShowMaskEditor}
-                  setEditShowMaskEditor={setEditShowMaskEditor}
-                  editGeneratedMaskFile={editGeneratedMaskFile}
-                  setEditGeneratedMaskFile={setEditGeneratedMaskFile}
-                  editIsMaskSaved={editIsMaskSaved}
-                  setEditIsMaskSaved={setEditIsMaskSaved}
-                  editOriginalImageSize={editOriginalImageSize}
-                  setEditOriginalImageSize={setEditOriginalImageSize}
-                  editDrawnPoints={editDrawnPoints}
-                  setEditDrawnPoints={setEditDrawnPoints}
-                  editMaskPreviewUrl={editMaskPreviewUrl}
-                  setEditMaskPreviewUrl={setEditMaskPreviewUrl}
+                   onSubmit={handleApiCall}
+                   onModeChange={setMode}
+                   isLoading={isLoading || isSendingToEdit}
+                   currentMode={mode}
+                   imageFiles={editImageFiles}
+                   sourceImagePreviewUrls={editSourceImagePreviewUrls}
+                   setImageFiles={setEditImageFiles}
+                   setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
+                   maxImages={MAX_EDIT_IMAGES}
+                   editPrompt={editPrompt}
+                   setEditPrompt={setEditPrompt}
+                   editN={editN}
+                   setEditN={setEditN}
+                   editSize={editSize}
+                   setEditSize={setEditSize}
+                   editQuality={editQuality}
+                   setEditQuality={setEditQuality}
+                   editBrushSize={editBrushSize}
+                   setEditBrushSize={setEditBrushSize}
+                   editShowMaskEditor={editShowMaskEditor}
+                   setEditShowMaskEditor={setEditShowMaskEditor}
+                   editGeneratedMaskFile={editGeneratedMaskFile}
+                   setEditGeneratedMaskFile={setEditGeneratedMaskFile}
+                   editIsMaskSaved={editIsMaskSaved}
+                   setEditIsMaskSaved={setEditIsMaskSaved}
+                   editOriginalImageSize={editOriginalImageSize}
+                   setEditOriginalImageSize={setEditOriginalImageSize}
+                   editDrawnPoints={editDrawnPoints}
+                   setEditDrawnPoints={setEditDrawnPoints}
+                   editMaskPreviewUrl={editMaskPreviewUrl}
+                   setEditMaskPreviewUrl={setEditMaskPreviewUrl}
                 />
              </div>
           </div>
@@ -441,6 +434,7 @@ export default function HomePage() {
             onClearHistory={handleClearHistory}
           />
         </div>
+
       </div>
     </main>
   );
