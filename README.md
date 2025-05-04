@@ -1,112 +1,96 @@
-# <img src="./public/favicon.svg" alt="Project Logo" width="30" height="30" style="vertical-align: middle; margin-right: 8px;"> GPT-IMAGE-1 Playground
+# 🦙 Llama Vibe Generator: Unleash Your Creative Potential
 
-A web-based playground to interact with OpenAI's `gpt-image-1` model for generating and editing images.
+Welcome to the next evolution of creative AI exploration! The Llama Vibe Generator is a groundbreaking web application that harnesses the power of Llama's advanced language models to transform your ideas into a symphony of creative possibilities.
 
-<p align="center">
-  <img src="./readme-images/interface.jpg" alt="Interface" width="600"/>
-</p>
+## 🌟 The Magic Behind the Scenes
 
-## ✨ Features
+Imagine having a creative AI companion that not only understands your vision but amplifies it into multiple unique interpretations. That's exactly what the Llama Vibe Generator delivers:
 
-*   **🎨 Image Generation Mode:** Create new images from text prompts.
-*   **🖌️ Image Editing Mode:** Modify existing images based on text prompts and optional masks.
-*   **⚙️ Full API Parameter Control:** Access and adjust all relevant parameters supported by the OpenAI Images API directly through the UI (size, quality, output format, compression, background, moderation, number of images).
-*   **🎭 Integrated Masking Tool:** Easily create or upload masks directly within the editing mode to specify areas for modification. Draw directly on the image to generate a mask.
+- **Multi-Modal Input**: Feed your creativity through text prompts OR images - our AI understands both!
+- **Vibe Expansion**: Watch as your input blossoms into three distinct creative directions, each with its own unique flavor and artistic perspective
+- **Automated Image Generation**: Each "vibe" automatically triggers image generation, bringing your concepts to visual life
+- **Real-Time Processing**: Experience the magic as it happens with our sleek, responsive interface
 
-<p align="center">
-  <img src="./readme-images/mask-creation.jpg" alt="Interface" width="350"/>
-</p>
+## 🎨 Features That Set Us Apart
 
-*   **📜 Detailed History & Cost Tracking:**
-    *   View a comprehensive history of all your image generations and edits.
-    *   See the parameters used for each request.
-    *   Get detailed API token usage and estimated cost breakdowns ($USD) for each operation.
-    *   View the full prompt used for each history item. (hint: click the $ amount on the image)
-    *   View total historical API cost.
+- **Dual Input Flexibility**: 
+  - Text prompts for when you have a specific vision
+  - Image uploads for visual inspiration
+  - Or combine both for maximum creative potential!
 
-<p align="center">
-  <img src="./readme-images/history.jpg" alt="Interface" width="800"/>
-</p>
+- **Triple Vibe Generation**:
+  - Each submission generates 3 unique interpretations
+  - Get distinct labels for easy reference
+  - Receive detailed prompts perfect for image generation
 
-<p align="center">
-  <img src="./readme-images/cost-breakdown.jpg" alt="Interface" width="350"/>
-</p>
+- **Seamless Image Generation**:
+  - Automatic visualization of each vibe
+  - Real-time progress tracking
+  - High-quality output optimized for creative use
 
-*   **🖼️ Flexible Image Output View:** View generated image batches as a grid or select individual images for a closer look.
-*   **🚀 Send to Edit:** Quickly send any generated or history image directly to the editing form.
-*   **📋 Paste to Edit:** Paste images directly from your clipboard into the Edit mode's source image area.
-*   **💾 Storage:** Images are saved automatically to ./generated-images and your generation history is saved in your browser's local storage.
+- **Sleek User Experience**:
+  - Dark mode interface for comfortable creation
+  - Responsive design that works on any device
+  - Intuitive layout that keeps you in the flow
 
 ## 🚀 Getting Started
 
-Follow these steps to get the playground running locally.
+Transform your creative process in minutes:
 
-### Prerequisites
+1. **Set Up Your Environment**:
+   ```bash
+   # Clone the repository
+   git clone [your-repo-url]
+   cd llama-vibe-generator
 
-*   [Node.js](https://nodejs.org/) (Version 18 or later recommended)
-*   [npm](https://www.npmjs.com/), [yarn](https://yarnpkg.com/), [pnpm](https://pnpm.io/), or [bun](https://bun.sh/)
+   # Install dependencies
+   npm install
+   # or
+   yarn install
+   # or
+   pnpm install
+   # or
+   bun install
+   ```
 
-### 1. Set Up API Key
+2. **Configure Your API Keys**:
+   Create a `.env.local` file:
+   ```env
+   LLAMA_API_KEY=your_llama_api_key_here
+   OPENAI_API_KEY=your_openai_api_key_here  # For image generation
+   ```
 
-You need an OpenAI API key to use this application.
+3. **Launch Your Creative Hub**:
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   # or
+   pnpm dev
+   # or
+   bun dev
+   ```
 
-1.  If you don't have a `.env.local` file, create one.
-2.  Add your OpenAI API key to the `.env.local` file:
+4. **Start Creating**: Open [http://localhost:3000](http://localhost:3000) and let your imagination soar!
 
-    ```dotenv
-    OPENAI_API_KEY=your_openai_api_key_here
-    ```
+## 🎯 Perfect For
 
-    **Important:** Keep your API key secret. The `.env.local` file is included in `.gitignore` by default to prevent accidental commits.
+- **Creative Professionals**: Generate multiple concepts from a single inspiration
+- **Artists & Designers**: Explore different artistic directions effortlessly
+- **Content Creators**: Quickly generate varied content ideas
+- **Anyone with an Imagination**: Turn your ideas into visual reality
 
-### (Optional) Use a Custom API Endpoint
+## 🛠️ Technical Stack
 
-If you need to use an OpenAI-compatible API endpoint (e.g., a local model server or a different provider), you can specify its base URL using the `OPENAI_API_BASE_URL` environment variable in your `.env.local` file:
-
-```dotenv
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_API_BASE_URL=your_compatible_api_endpoint_here
-```
-
-If `OPENAI_API_BASE_URL` is not set, the application will default to the standard OpenAI API endpoint.
-
-
-### 2. Install Dependencies
-
-Navigate to the project directory in your terminal and install the necessary packages:
-
-```bash
-npm install
-# or
-# yarn install
-# or
-# pnpm install
-# or
-# bun install
-```
-
-### 3. Run the Development Server
-
-Start the Next.js development server:
-
-```bash
-npm run dev
-# or
-# yarn dev
-# or
-# pnpm dev
-# or
-# bun dev
-```
-
-### 4. Open the Playground
-
-Open [http://localhost:3000](http://localhost:3000) in your web browser. You should now be able to use the gpt-image-1 Playground!
-
-## 🤝 Contributing
-
-Contributions are welcome! Issues and feature requests, not as much welcome but I'll think about it.
+- **Frontend**: Next.js 14 with React
+- **AI Integration**: Llama API for intelligent vibe generation
+- **Image Generation**: OpenAI's DALL-E for visualization
+- **Styling**: Tailwind CSS for a beautiful, responsive interface
 
 ## 📄 License
 
-MIT
+MIT - Feel free to use this tool to power your creative projects!
+
+---
+
+<p align="center">Built with 💜 by creative technologists for creative minds</p>

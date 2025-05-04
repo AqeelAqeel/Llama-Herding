@@ -1,441 +1,320 @@
-"use client"; 
+"use client";
 
-import * as React from "react";
-import { GenerationForm, type GenerationFormData } from "@/components/generation-form";
-import { EditingForm, type EditingFormData } from "@/components/editing-form";
-import { ImageOutput } from "@/components/image-output";
-import { HistoryPanel } from "@/components/history-panel";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { calculateApiCost, type CostDetails } from "@/lib/cost-utils";
+import { useState, FormEvent } from "react";
 
-type HistoryImage = {
-  filename: string;
-};
-
-export type HistoryMetadata = {
-  timestamp: number; 
-  images: HistoryImage[];
-  durationMs: number;
-  quality: GenerationFormData['quality'];
-  background: GenerationFormData['background'];
-  moderation: GenerationFormData['moderation'];
+// Interface for the structure returned by /api/llama
+interface VibeData {
+  label: string;
   prompt: string;
-  mode: 'generate' | 'edit';
-  costDetails: CostDetails | null;
-};
+}
 
-// Restore necessary types/constants
-type DrawnPoint = {
-    x: number;
-    y: number;
-    size: number;
-};
+// Interface to hold the combined result for each vibe
+interface VibeResult extends VibeData {
+  imageUrl: string | null;
+  imageError: string | null;
+  isGeneratingImage: boolean;
+}
 
-const MAX_EDIT_IMAGES = 10;
+// Interface for a complete generation set (input + 3 generated vibes)
+interface GenerationSet {
+  id: string;
+  inputPrompt: string | null;
+  inputImageName: string | null;
+  vibes: VibeResult[];
+}
 
 export default function HomePage() {
-  const [mode, setMode] = React.useState<"generate" | "edit">("generate");
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [isSendingToEdit, setIsSendingToEdit] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [latestImageBatch, setLatestImageBatch] = React.useState<{ path: string; filename: string }[] | null>(null);
-  const [imageOutputView, setImageOutputView] = React.useState<'grid' | number>('grid');
-  const [history, setHistory] = React.useState<HistoryMetadata[]>([]); 
-  const [isInitialLoad, setIsInitialLoad] = React.useState(true);
+  const [prompt, setPrompt] = useState<string>("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [generationSets, setGenerationSets] = useState<GenerationSet[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLlamaLoading, setIsLlamaLoading] = useState<boolean>(false);
 
-  
-  const [editImageFiles, setEditImageFiles] = React.useState<File[]>([]);
-  const [editSourceImagePreviewUrls, setEditSourceImagePreviewUrls] = React.useState<string[]>([]);
-  const [editPrompt, setEditPrompt] = React.useState("");
-  const [editN, setEditN] = React.useState([1]);
-  const [editSize, setEditSize] = React.useState<EditingFormData['size']>("auto");
-  const [editQuality, setEditQuality] = React.useState<EditingFormData['quality']>("auto");
-  const [editBrushSize, setEditBrushSize] = React.useState([20]);
-  const [editShowMaskEditor, setEditShowMaskEditor] = React.useState(false);
-  const [editGeneratedMaskFile, setEditGeneratedMaskFile] = React.useState<File | null>(null);
-  const [editIsMaskSaved, setEditIsMaskSaved] = React.useState(false);
-  const [editOriginalImageSize, setEditOriginalImageSize] = React.useState<{ width: number; height: number } | null>(null);
-  const [editDrawnPoints, setEditDrawnPoints] = React.useState<DrawnPoint[]>([]);
-  const [editMaskPreviewUrl, setEditMaskPreviewUrl] = React.useState<string | null>(null);
-
-  
-  const [genPrompt, setGenPrompt] = React.useState("");
-  const [genN, setGenN] = React.useState([1]);
-  const [genSize, setGenSize] = React.useState<GenerationFormData['size']>("auto");
-  const [genQuality, setGenQuality] = React.useState<GenerationFormData['quality']>("auto");
-  const [genOutputFormat, setGenOutputFormat] = React.useState<GenerationFormData['output_format']>("png");
-  const [genCompression, setGenCompression] = React.useState([100]);
-  const [genBackground, setGenBackground] = React.useState<GenerationFormData['background']>("auto");
-  const [genModeration, setGenModeration] = React.useState<GenerationFormData['moderation']>("auto");
-
-  React.useEffect(() => {
-    return () => {
-      editSourceImagePreviewUrls.forEach(url => URL.revokeObjectURL(url));
-    };
-  }, [editSourceImagePreviewUrls]);
-
-  // Load history from localStorage on mount
-  React.useEffect(() => {
-    try {
-      const storedHistory = localStorage.getItem("openaiImageHistory");
-      if (storedHistory) {
-        const parsedHistory: HistoryMetadata[] = JSON.parse(storedHistory);
-        if (Array.isArray(parsedHistory)) {
-           
-           setHistory(parsedHistory);
-        } else {
-            console.warn("Invalid history data found in localStorage.");
-            localStorage.removeItem("openaiImageHistory");
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load or parse history from localStorage:", e);
-      localStorage.removeItem("openaiImageHistory");
-    }
-    setIsInitialLoad(false);
-  }, []);
-
-  
-  React.useEffect(() => {
-    if (!isInitialLoad) {
-        try {
-            localStorage.setItem("openaiImageHistory", JSON.stringify(history));
-        } catch (e) {
-            console.error("Failed to save history to localStorage:", e);
-        }
-    }
-  }, [history, isInitialLoad]);
-
-  
-  React.useEffect(() => {
-    const handlePaste = (event: ClipboardEvent) => {
-      if (mode !== 'edit' || !event.clipboardData) {
-        return; 
-      }
-
-      if (editImageFiles.length >= MAX_EDIT_IMAGES) {
-        alert(`Cannot paste: Maximum of ${MAX_EDIT_IMAGES} images reached.`);
-        return;
-      }
-
-      const items = event.clipboardData.items;
-      let imageFound = false;
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf("image") !== -1) {
-          const file = items[i].getAsFile();
-          if (file) {
-            
-            event.preventDefault();
-            imageFound = true;
-
-            const previewUrl = URL.createObjectURL(file);
-
-            setEditImageFiles(prevFiles => [...prevFiles, file]);
-            setEditSourceImagePreviewUrls(prevUrls => [...prevUrls, previewUrl]);
-
-            console.log("Pasted image added:", file.name);
-            
-            break;
-          }
-        }
-      }
-      if (!imageFound) {
-          console.log("Paste event did not contain a recognized image file.");
-      }
-    };
-
-    window.addEventListener('paste', handlePaste);
-
-    return () => {
-      window.removeEventListener('paste', handlePaste);
-    };
-  }, [mode, editImageFiles.length, setEditImageFiles, setEditSourceImagePreviewUrls]);
-
-  // Restore original handleApiCall function if it was removed or modified
-  const handleApiCall = async ( /* formData: GenerationFormData | EditingFormData */ ) => { // Modify to not expect formData directly if forms manage state internally
-    const startTime = Date.now();
-    let durationMs = 0;
-
-    setIsLoading(true);
-    setError(null);
-    setLatestImageBatch(null);
-    setImageOutputView('grid');
-
-    const apiFormData = new FormData();
-    apiFormData.append("mode", mode);
-
-    if (mode === "generate") {
-      // Append generation form data
-      apiFormData.append("prompt", genPrompt);
-      apiFormData.append("n", genN[0].toString());
-      apiFormData.append("size", genSize);
-      apiFormData.append("quality", genQuality);
-      apiFormData.append("output_format", genOutputFormat);
-      if ((genOutputFormat === 'jpeg' || genOutputFormat === 'webp') && genCompression[0] !== 100) {
-         apiFormData.append("output_compression", genCompression[0].toString());
-      }
-      apiFormData.append("background", genBackground);
-      apiFormData.append("moderation", genModeration);
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      setImageFile(event.target.files[0]);
     } else {
-      // Append editing form data
-      apiFormData.append("prompt", editPrompt);
-      apiFormData.append("n", editN[0].toString());
-      apiFormData.append("size", editSize);
-      apiFormData.append("quality", editQuality);
-      editImageFiles.forEach((file, index) => {
-        apiFormData.append(`image_${index}`, file, file.name);
-      });
-      if (editGeneratedMaskFile) {
-         apiFormData.append("mask", editGeneratedMaskFile, editGeneratedMaskFile.name);
-      }
+      setImageFile(null);
     }
+  };
 
-    console.log("Sending request to /api/images with mode:", mode);
+  // Function to generate image for a single vibe
+  const generateImage = async (vibePrompt: string, generationSetId: string, vibeIndex: number) => {
+    console.log(`Processing vibe ${vibeIndex + 1} for generation set ${generationSetId}...`);
+    // Set loading state for this specific vibe
+    setGenerationSets(prev => 
+      prev.map(set => {
+        if (set.id === generationSetId) {
+          return {
+            ...set,
+            vibes: set.vibes.map((vibe, i) => 
+              i === vibeIndex ? { ...vibe, isGeneratingImage: true, imageError: null } : vibe
+            )
+          };
+        }
+        return set;
+      })
+    );
 
     try {
-      const response = await fetch("/api/images", {
+      // Call the OpenAI API endpoint to generate an image based on the prompt
+      const response = await fetch("/api/openai", {
         method: "POST",
-        body: apiFormData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt: vibePrompt }),
       });
 
-      const result = await response.json(); 
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || `API request failed with status ${response.status}`);
+        throw new Error(data.error || `Image generation failed with status ${response.status}`);
       }
 
-      console.log("API Response:", result);
+      // Update the state with the generated image URL
+      setGenerationSets(prev => 
+        prev.map(set => {
+          if (set.id === generationSetId) {
+            return {
+              ...set,
+              vibes: set.vibes.map((vibe, i) => 
+                i === vibeIndex ? {
+                  ...vibe,
+                  imageUrl: data.imageUrl,
+                  isGeneratingImage: false
+                } : vibe
+              )
+            };
+          }
+          return set;
+        })
+      );
+      console.log(`Processed vibe ${vibeIndex + 1}`);
 
-      if (result.images && result.images.length > 0) {
-        durationMs = Date.now() - startTime;
-        console.log(`API call successful. Duration: ${durationMs}ms`);
-
-        let historyQuality: GenerationFormData['quality'] = 'auto';
-        let historyBackground: GenerationFormData['background'] = 'auto';
-        let historyModeration: GenerationFormData['moderation'] = 'auto';
-        let historyPrompt: string = ''; 
-
-        if (mode === 'generate') {
-            historyQuality = genQuality;
-            historyBackground = genBackground;
-            historyModeration = genModeration;
-            historyPrompt = genPrompt;
-        } else {
-            historyQuality = editQuality;
-            historyBackground = 'auto'; // Background not applicable for edit
-            historyModeration = 'auto'; // Moderation not applicable for edit
-            historyPrompt = editPrompt;
-        }
-
-        // Pass only the usage object to the cost calculation function
-        const usageData = (result as any).usage; // Extract usage data
-        const costDetails = usageData ? calculateApiCost(usageData) : null;
-
-        const batchTimestamp = Date.now();
-        const newHistoryEntry: HistoryMetadata = {
-            timestamp: batchTimestamp,
-            images: result.images.map((img: { filename: string }) => ({ filename: img.filename })),
-            durationMs: durationMs,
-            quality: historyQuality,
-            background: historyBackground,
-            moderation: historyModeration,
-            prompt: historyPrompt,
-            mode: mode,
-            costDetails: costDetails
-        };
-
-        const newImageBatch = result.images.map((img: { path: string; filename: string }) => ({
-            path: img.path, // Use the path returned by the API
-            filename: img.filename
-        }));
-
-        setLatestImageBatch(newImageBatch);
-        setImageOutputView(newImageBatch.length > 1 ? 'grid' : 0);
-
-        // Update history (assuming setHistory exists)
-        // setHistory((prevHistory) => [newHistoryEntry, ...prevHistory]);
-
-      } else {
-         setLatestImageBatch(null);
-         throw new Error("API response did not contain valid image data or filenames.");
-      }
-
-    } catch (err: unknown) {
-      durationMs = Date.now() - startTime;
-      console.error(`API Call Error after ${durationMs}ms:`, err);
-      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred.";
-      setError(errorMessage);
-      setLatestImageBatch(null);
-    } finally {
-      if (durationMs === 0) durationMs = Date.now() - startTime; // Ensure duration is set even on immediate failure
-      setIsLoading(false);
+    } catch (err: any) {
+      console.error(`Error processing vibe ${vibeIndex + 1}:`, err);
+      setGenerationSets(prev => 
+        prev.map(set => {
+          if (set.id === generationSetId) {
+            return {
+              ...set,
+              vibes: set.vibes.map((vibe, i) => 
+                i === vibeIndex ? { 
+                  ...vibe, 
+                  imageError: err.message || "Unknown error", 
+                  isGeneratingImage: false
+                } : vibe
+              )
+            };
+          }
+          return set;
+        })
+      );
     }
   };
 
-  const handleHistorySelect = (item: HistoryMetadata) => {
-    const selectedBatch = item.images.map(img => ({
-        path: `/api/image/${img.filename}`,
-        filename: img.filename
-    }));
-    setLatestImageBatch(selectedBatch);
-    setImageOutputView(selectedBatch.length > 1 ? 'grid' : 0);
-    setError(null);
-  };
-
-  const handleClearHistory = () => {
-    if (window.confirm("Are you sure you want to clear the entire image history? This cannot be undone.")) {
-        setHistory([]);
-        setLatestImageBatch(null);
-        setImageOutputView('grid');
-        try {
-            localStorage.removeItem("openaiImageHistory");
-        } catch (e) {
-            console.error("Failed to remove history from localStorage:", e);
-        }
-    }
-  };
-
-  const handleSendToEdit = async (filename: string) => {
-    if (isLoading) return;
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsLlamaLoading(true);
     setError(null);
 
-    const alreadyExists = editImageFiles.some(file => file.name === filename);
-    if (mode === 'edit' && alreadyExists) {
-        console.log(`Image ${filename} already in edit list.`);
-        return;
+    if (!prompt && !imageFile) {
+      setError("Please provide either a text prompt or an image.");
+      setIsLlamaLoading(false);
+      return;
     }
 
-    if (mode === 'edit' && editImageFiles.length >= MAX_EDIT_IMAGES) {
-        setError(`Cannot add more than ${MAX_EDIT_IMAGES} images to the edit form.`);
-        return;
+    const formData = new FormData();
+    if (prompt) {
+      formData.append("prompt", prompt);
     }
-
-    console.log(`Sending image ${filename} to edit...`);
+    if (imageFile) {
+      formData.append("image", imageFile);
+    }
 
     try {
-      const response = await fetch(`/api/image/${filename}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
-      }
-      const blob = await response.blob();
-      const mimeType = response.headers.get('Content-Type') || 'image/png';
+      console.log("Sending request to /api/llama...");
+      const res = await fetch("/api/llama", {
+        method: "POST",
+        body: formData,
+      });
 
-      const newFile = new File([blob], filename, { type: mimeType });
-      const newPreviewUrl = URL.createObjectURL(blob);
+      console.log("Received response from /api/llama, status:", res.status);
+      const data = await res.json();
 
-      editSourceImagePreviewUrls.forEach(url => URL.revokeObjectURL(url));
-
-      setEditImageFiles([newFile]);
-      setEditSourceImagePreviewUrls([newPreviewUrl]);
-
-      if (mode === 'generate') {
-        setMode('edit');
+      if (!res.ok) {
+        throw new Error(data.error || `Llama request failed with status ${res.status}`);
       }
 
-      console.log(`Successfully set ${filename} in edit form.`);
+      if (!data || !Array.isArray(data.vibes) || data.vibes.length === 0) {
+        throw new Error("Invalid response structure received from /api/llama. Expected { vibes: [...] }.");
+      }
 
-    } catch (err: unknown) {
-      console.error("Error sending image to edit:", err);
-      const errorMessage = err instanceof Error ? err.message : "Failed to send image to edit form.";
-      setError(errorMessage);
+      console.log("/api/llama Response (vibes):", data.vibes);
+      
+      const newGenerationSetId = Date.now().toString();
+      const initialVibes: VibeResult[] = data.vibes.map((vibe: VibeData) => ({
+        ...vibe,
+        imageUrl: null,
+        imageError: null,
+        isGeneratingImage: false,
+      }));
+
+      const newGenerationSet: GenerationSet = {
+        id: newGenerationSetId,
+        inputPrompt: prompt || null,
+        inputImageName: imageFile ? imageFile.name : null,
+        vibes: initialVibes,
+      };
+
+      setGenerationSets(prev => [...prev, newGenerationSet]);
+
+      for (let i = 0; i < data.vibes.length; i++) {
+        await generateImage(data.vibes[i].prompt, newGenerationSetId, i);
+      }
+
+      setPrompt("");
+      setImageFile(null);
+
+    } catch (err: any) {
+      console.error("Error in main process:", err);
+      setError(err.message || "An unknown error occurred.");
+    } finally {
+      setIsLlamaLoading(false);
     }
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center p-4 md:p-8 lg:p-12 bg-black text-white">
-      <div className="w-full max-w-7xl space-y-6">
+    <div className="min-h-screen bg-black text-white p-6">
+      <div className="container mx-auto">
+        <h1 className="text-3xl font-bold mb-6 text-center">🦙 Llama Vibe Generator</h1>
+        
+        <div className="bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700 mb-8">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="prompt" className="block text-sm font-medium mb-2">
+                Text Prompt (Optional)
+              </label>
+              <textarea
+                id="prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:ring-indigo-500 focus:border-indigo-500 resize-y"
+                rows={4}
+                placeholder="Enter your prompt here..."
+                aria-label="Text Prompt (Optional)"
+              />
+            </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="flex flex-col h-[70vh] min-h-[600px] lg:col-span-1 relative">
-             <div className={mode === 'generate' ? 'block w-full h-full' : 'hidden'}>
-                <GenerationForm
-                   onSubmit={handleApiCall}
-                   onModeChange={setMode}
-                   isLoading={isLoading}
-                   currentMode={mode}
-                   prompt={genPrompt}
-                   setPrompt={setGenPrompt}
-                   n={genN}
-                   setN={setGenN}
-                   size={genSize}
-                   setSize={setGenSize}
-                   quality={genQuality}
-                   setQuality={setGenQuality}
-                   outputFormat={genOutputFormat}
-                   setOutputFormat={setGenOutputFormat}
-                   compression={genCompression}
-                   setCompression={setGenCompression}
-                   background={genBackground}
-                   setBackground={setGenBackground}
-                   moderation={genModeration}
-                   setModeration={setGenModeration}
-                />
-             </div>
-             <div className={mode === 'edit' ? 'block w-full h-full' : 'hidden'}>
-                <EditingForm
-                   onSubmit={handleApiCall}
-                   onModeChange={setMode}
-                   isLoading={isLoading || isSendingToEdit}
-                   currentMode={mode}
-                   imageFiles={editImageFiles}
-                   sourceImagePreviewUrls={editSourceImagePreviewUrls}
-                   setImageFiles={setEditImageFiles}
-                   setSourceImagePreviewUrls={setEditSourceImagePreviewUrls}
-                   maxImages={MAX_EDIT_IMAGES}
-                   editPrompt={editPrompt}
-                   setEditPrompt={setEditPrompt}
-                   editN={editN}
-                   setEditN={setEditN}
-                   editSize={editSize}
-                   setEditSize={setEditSize}
-                   editQuality={editQuality}
-                   setEditQuality={setEditQuality}
-                   editBrushSize={editBrushSize}
-                   setEditBrushSize={setEditBrushSize}
-                   editShowMaskEditor={editShowMaskEditor}
-                   setEditShowMaskEditor={setEditShowMaskEditor}
-                   editGeneratedMaskFile={editGeneratedMaskFile}
-                   setEditGeneratedMaskFile={setEditGeneratedMaskFile}
-                   editIsMaskSaved={editIsMaskSaved}
-                   setEditIsMaskSaved={setEditIsMaskSaved}
-                   editOriginalImageSize={editOriginalImageSize}
-                   setEditOriginalImageSize={setEditOriginalImageSize}
-                   editDrawnPoints={editDrawnPoints}
-                   setEditDrawnPoints={setEditDrawnPoints}
-                   editMaskPreviewUrl={editMaskPreviewUrl}
-                   setEditMaskPreviewUrl={setEditMaskPreviewUrl}
-                />
-             </div>
-          </div>
-          <div className="flex flex-col h-[70vh] min-h-[600px] lg:col-span-1">
-            {error && (
-                <Alert variant="destructive" className="mb-4 border-red-500/50 bg-red-900/20 text-red-300">
-                    <AlertTitle className="text-red-200">Error</AlertTitle>
-                    <AlertDescription>{error}</AlertDescription>
-                </Alert>
-            )}
-            <ImageOutput
-               imageBatch={latestImageBatch}
-               viewMode={imageOutputView}
-               onViewChange={setImageOutputView}
-               altText="Generated image output"
-               isLoading={isLoading || isSendingToEdit}
-               onSendToEdit={handleSendToEdit}
-               currentMode={mode}
-               baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
-            />
-          </div>
+            <div>
+              <label htmlFor="image" className="block text-sm font-medium mb-2">
+                Image File (Optional)
+              </label>
+              <input
+                id="image"
+                type="file"
+                onChange={handleFileChange}
+                accept="image/*"
+                className="w-full text-sm text-gray-400
+                       file:mr-4 file:py-2 file:px-4
+                       file:rounded-full file:border-0
+                       file:text-sm file:font-semibold
+                       file:bg-violet-900 file:text-white
+                       hover:file:bg-violet-800 cursor-pointer"
+                 aria-label="Image File (Optional)"
+              />
+              {imageFile && (
+                <p className="text-xs mt-1 text-gray-400">Selected: {imageFile.name}</p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLlamaLoading}
+              className="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 rounded-md font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+            >
+              {isLlamaLoading ? "Generating Vibes & Images..." : "Generate 3 Image Vibes"}
+            </button>
+          </form>
         </div>
 
-        <div className="min-h-[450px]">
-          <HistoryPanel
-            history={history}
-            onSelectImage={handleHistorySelect}
-            onClearHistory={handleClearHistory}
-          />
-        </div>
+        {error && (
+          <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-md text-red-200">
+            <h3 className="font-bold mb-1">Error:</h3>
+            <p>{error}</p>
+          </div>
+        )}
 
+        {generationSets.length > 0 && (
+          <div className="space-y-12">
+            {generationSets.map((generationSet) => (
+              <div key={generationSet.id} className="bg-gray-900/50 p-6 rounded-lg border border-gray-800">
+                <div className="mb-4 pb-4 border-b border-gray-700">
+                  <h3 className="text-xl font-bold mb-2 text-indigo-400">Generation Input:</h3>
+                  {generationSet.inputPrompt && (
+                    <div className="mb-2">
+                      <span className="text-gray-400 font-semibold">Prompt:</span>
+                      <p className="ml-2 text-gray-200">{generationSet.inputPrompt}</p>
+                    </div>
+                  )}
+                  {generationSet.inputImageName && (
+                    <div>
+                      <span className="text-gray-400 font-semibold">Image:</span>
+                      <p className="ml-2 text-gray-200">{generationSet.inputImageName}</p>
+                    </div>
+                  )}
+                </div>
+
+                <h2 className="text-2xl font-semibold mb-4">Generated Vibes & Images</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {generationSet.vibes.map((result, index) => (
+                    <div key={index} className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col space-y-3">
+                      <h3 className="text-lg font-bold text-center text-indigo-400">{result.label || `Vibe ${index + 1}`}</h3>
+                      <div>
+                        <p className="text-xs font-semibold mb-1 text-gray-400">Prompt:</p>
+                        <div className="bg-gray-900 p-2 rounded text-gray-300 max-h-32 overflow-auto">
+                          <p className="text-sm break-words">{result.prompt}</p>
+                        </div>
+                      </div>
+                      <div className="min-h-64 min-w-64 aspect-square bg-gray-700 rounded flex items-center justify-center">
+                        {result.isGeneratingImage && (
+                          <div className="text-center">
+                            <svg className="animate-spin h-8 w-8 text-indigo-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <p className="text-sm text-gray-400">Processing vibe...</p>
+                          </div>
+                        )}
+                        {result.imageError && (
+                          <div className="p-2 text-center text-red-400">
+                            <p className="text-sm font-semibold">Error:</p>
+                            <p className="text-xs break-words">{result.imageError}</p>
+                          </div>
+                        )}
+                        {!result.isGeneratingImage && !result.imageError && !result.imageUrl && (
+                          <div className="p-4 text-center">
+                            <p className="text-gray-300 text-sm">Generated Vibe:</p>
+                            <p className="text-indigo-400 font-medium mt-2">{result.label}</p>
+                          </div>
+                        )}
+                        {!result.isGeneratingImage && !result.imageError && result.imageUrl && (
+                          <img 
+                            src={result.imageUrl} 
+                            alt={`Generated image for ${result.label}`}
+                            className="w-full h-full object-cover rounded"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </main>
+    </div>
   );
 }
