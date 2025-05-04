@@ -8,7 +8,7 @@ const openai = new OpenAI({
   baseURL: process.env.OPENAI_API_BASE_URL,
 });
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
+const outputDir = path.resolve(process.cwd(), 'public', 'generated-images');
 
 async function ensureOutputDirExists() {
   try {
@@ -162,13 +162,16 @@ export async function POST(request: NextRequest) {
 
         return {
           b64_json: imageData.b64_json,
-          path: `/generated-images/${filename}`, 
+          path: `/generated-images/${filename}`,
           filename: filename,
         };
       })
     );
 
     console.log('All images processed and saved.');
+    
+    // Add debug logging for the image paths
+    console.log('Image URLs being returned:', savedImagesData.map(img => img.path));
     
     return NextResponse.json({ images: savedImagesData, usage: result.usage });
 
