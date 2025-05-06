@@ -10,9 +10,11 @@ interface VibeData {
 
 // Interface to hold the combined result for each vibe
 interface VibeResult extends VibeData {
+  id?: string;
   imageUrl: string | null;
   imageError: string | null;
   isGeneratingImage: boolean;
+  parentId?: string; // ID of the parent image this was generated from
 }
 
 // Interface for a complete generation set (input + 3 generated vibes)
@@ -22,6 +24,8 @@ interface GenerationSet {
   inputImageName: string | null;
   vibes: VibeResult[];
 }
+
+export type { VibeResult, GenerationSet };
 
 export default function HomePage() {
   const [prompt, setPrompt] = useState<string>("");
@@ -72,7 +76,7 @@ export default function HomePage() {
         throw new Error(data.error || `Image generation failed with status ${response.status}`);
       }
 
-      // Update the state with the generated image URL
+      // Update the state with the generated image URL and assign an ID
       setGenerationSets(prev => 
         prev.map(set => {
           if (set.id === generationSetId) {
@@ -81,6 +85,7 @@ export default function HomePage() {
               vibes: set.vibes.map((vibe, i) => 
                 i === vibeIndex ? {
                   ...vibe,
+                  id: `${generationSetId}-${i}`, // Add unique ID
                   imageUrl: data.imageUrl,
                   isGeneratingImage: false
                 } : vibe
@@ -111,6 +116,56 @@ export default function HomePage() {
           return set;
         })
       );
+    }
+  };
+
+  const generateVariants = async (sourceVibeId: string, sourcePrompt: string) => {
+    setIsLlamaLoading(true);
+    setError(null);
+
+    try {
+      console.log("Generating variants from prompt:", sourcePrompt);
+      const formData = new FormData();
+      formData.append("prompt", sourcePrompt);
+
+      const res = await fetch("/api/llama", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || `Variant generation failed with status ${res.status}`);
+      }
+
+      const newGenerationSetId = Date.now().toString();
+      const initialVibes: VibeResult[] = data.vibes.map((vibe: VibeData) => ({
+        ...vibe,
+        imageUrl: null,
+        imageError: null,
+        isGeneratingImage: false,
+        parentId: sourceVibeId,
+      }));
+
+      const newGenerationSet: GenerationSet = {
+        id: newGenerationSetId,
+        inputPrompt: sourcePrompt,
+        inputImageName: null,
+        vibes: initialVibes,
+      };
+
+      setGenerationSets(prev => [...prev, newGenerationSet]);
+
+      for (let i = 0; i < data.vibes.length; i++) {
+        await generateImage(data.vibes[i].prompt, newGenerationSetId, i);
+      }
+
+    } catch (err: any) {
+      console.error("Error generating variants:", err);
+      setError(err.message || "Failed to generate variants");
+    } finally {
+      setIsLlamaLoading(false);
     }
   };
 
@@ -251,7 +306,9 @@ export default function HomePage() {
             {generationSets.map((generationSet) => (
               <div key={generationSet.id} className="bg-gray-900/50 p-6 rounded-lg border border-gray-800">
                 <div className="mb-4 pb-4 border-b border-gray-700">
-                  <h3 className="text-xl font-bold mb-2 text-indigo-400">Generation Input:</h3>
+                  <h3 className="text-xl font-bold mb-2 text-indigo-400">
+                    {generationSet.vibes.some(v => v.parentId) ? 'Variants From:' : 'Generation Input:'}
+                  </h3>
                   {generationSet.inputPrompt && (
                     <div className="mb-2">
                       <span className="text-gray-400 font-semibold">Prompt:</span>
@@ -266,7 +323,9 @@ export default function HomePage() {
                   )}
                 </div>
 
-                <h2 className="text-2xl font-semibold mb-4">Generated Vibes & Images</h2>
+                <h2 className="text-2xl font-semibold mb-4">
+                  {generationSet.vibes.some(v => v.parentId) ? 'Generated Variants' : 'Generated Vibes & Images'}
+                </h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {generationSet.vibes.map((result, index) => (
                     <div key={index} className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col space-y-3">
@@ -277,34 +336,45 @@ export default function HomePage() {
                           <p className="text-sm break-words">{result.prompt}</p>
                         </div>
                       </div>
-                      <div className="min-h-64 min-w-64 aspect-square bg-gray-700 rounded flex items-center justify-center">
-                        {result.isGeneratingImage && (
-                          <div className="text-center">
-                            <svg className="animate-spin h-8 w-8 text-indigo-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <p className="text-sm text-gray-400">Processing vibe...</p>
-                          </div>
-                        )}
-                        {result.imageError && (
-                          <div className="p-2 text-center text-red-400">
-                            <p className="text-sm font-semibold">Error:</p>
-                            <p className="text-xs break-words">{result.imageError}</p>
-                          </div>
-                        )}
-                        {!result.isGeneratingImage && !result.imageError && !result.imageUrl && (
-                          <div className="p-4 text-center">
-                            <p className="text-gray-300 text-sm">Generated Vibe:</p>
-                            <p className="text-indigo-400 font-medium mt-2">{result.label}</p>
-                          </div>
-                        )}
+                      <div className="flex-1 flex flex-col gap-2">
+                        <div className="relative aspect-square bg-gray-700 rounded flex items-center justify-center overflow-hidden">
+                          {result.isGeneratingImage && (
+                            <div className="text-center">
+                              <svg className="animate-spin h-8 w-8 text-indigo-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <p className="text-sm text-gray-400">Processing vibe...</p>
+                            </div>
+                          )}
+                          {result.imageError && (
+                            <div className="p-2 text-center text-red-400">
+                              <p className="text-sm font-semibold">Error:</p>
+                              <p className="text-xs break-words">{result.imageError}</p>
+                            </div>
+                          )}
+                          {!result.isGeneratingImage && !result.imageError && !result.imageUrl && (
+                            <div className="p-4 text-center">
+                              <p className="text-gray-300 text-sm">Generated Vibe:</p>
+                              <p className="text-indigo-400 font-medium mt-2">{result.label}</p>
+                            </div>
+                          )}
+                          {!result.isGeneratingImage && !result.imageError && result.imageUrl && (
+                            <img 
+                              src={result.imageUrl} 
+                              alt={`Generated image for ${result.label}`}
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                        </div>
                         {!result.isGeneratingImage && !result.imageError && result.imageUrl && (
-                          <img 
-                            src={result.imageUrl} 
-                            alt={`Generated image for ${result.label}`}
-                            className="w-full h-full object-cover rounded"
-                          />
+                          <button
+                            onClick={() => generateVariants(result.id || `${generationSet.id}-${index}`, result.prompt)}
+                            disabled={isLlamaLoading}
+                            className="w-full py-2 px-4 bg-indigo-600/30 hover:bg-indigo-600/50 rounded-md font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 border border-indigo-500/30"
+                          >
+                            Generate 3 Variants
+                          </button>
                         )}
                       </div>
                     </div>
